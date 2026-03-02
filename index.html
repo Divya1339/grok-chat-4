@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Robot Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>Robot Assistant</h1>
+
+  <div class="robot-container">
+    <div class="robot">
+      <div class="head">
+        <span class="eye"></span>
+        <span class="eye"></span>
+      </div>
+      <div class="body"></div>
+      <div class="arm left"></div>
+      <div class="arm right"></div>
+    </div>
+  </div>
+
+  <div class="chat-container">
+    <div id="chatBox" class="chat-box">
+      <div class="msg bot">
+        Hi! 👋 Try: <b>“give me a markdown table”</b>
+      </div>
+    </div>
+
+    <div class="input-row">
+      <input id="userInput" type="text" placeholder="Type your message..." autocomplete="off" />
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <!-- ✅ Markdown parsing + sanitization -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+
+  <script src="script.js"></script>
+</body>
+</html>
