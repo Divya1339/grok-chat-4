@@ -1,14 +1,5 @@
 {
-  "name": "groq-chat",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1"
-  }
+  "name": "grok-chat-4",
+  "private": true,
+  "type": "module"
 }
