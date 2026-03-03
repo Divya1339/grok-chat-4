@@ -1,97 +1,132 @@
-const chatBox = document.getElementById("chatBox");
-const input = document.getElementById("userInput");
-const sendBtn = document.getElementById("sendBtn");
+document.addEventListener("DOMContentLoaded", () => {
+  const chatBox = document.getElementById("chat-box");
+  const input = document.getElementById("user-input");
+  const sendBtn = document.getElementById("send-btn");
 
-function renderMarkdown(md) {
-  const html = marked.parse(md, { gfm: true, breaks: true });
-  return DOMPurify.sanitize(html);
-}
+  // Enable GitHub-flavored markdown for tables
+  marked.setOptions({ gfm: true, breaks: true });
 
-function appendMessage(text, role) {
-  const div = document.createElement("div");
-  div.className = `msg ${role}`;
-
-  if (role === "bot") div.innerHTML = renderMarkdown(text);
-  else div.textContent = text;
-
-  chatBox.appendChild(div);
-  chatBox.scrollTop = chatBox.scrollHeight;
-  return div;
-}
-
-async function streamChat(message) {
-  appendMessage(message, "user");
-  const botDiv = appendMessage("…", "bot");
-
-  const resp = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
-  });
-
-  if (!resp.ok || !resp.body) {
-    botDiv.innerHTML = renderMarkdown("⚠️ Server error. Please try again.");
-    return;
+  function scrollToBottom() {
+    chatBox.scrollTop = chatBox.scrollHeight;
   }
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder("utf-8");
+  function appendUser(text) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg me";
+    wrap.textContent = text;
+    chatBox.appendChild(wrap);
+    scrollToBottom();
+  }
 
-  let buffer = "";
-  let fullText = "";
+  function appendBotContainer() {
+    const wrap = document.createElement("div");
+    wrap.className = "msg bot";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
+    const md = document.createElement("div");
+    md.className = "md";
+    md.innerHTML = ""; // streamed in
 
-    buffer += decoder.decode(value, { stream: true });
+    wrap.appendChild(md);
+    chatBox.appendChild(wrap);
+    scrollToBottom();
 
-    // SSE messages are separated by blank lines
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
+    return md; // return inner container for incremental updates
+  }
 
-    for (const evt of events) {
-      // Find all "data:" lines (some streams may include multiple lines)
-      const dataLines = evt
-        .split("\n")
-        .filter((l) => l.startsWith("data:"))
-        .map((l) => l.replace(/^data:\s*/, "").trim())
-        .filter(Boolean);
+  function renderMarkdownInto(el, markdownText) {
+    const html = marked.parse(markdownText);
+    el.innerHTML = DOMPurify.sanitize(html);
+  }
 
-      for (const dataStr of dataLines) {
-        if (dataStr === "[DONE]") continue;
+  async function sendMessage() {
+    const userMessage = input.value.trim();
+    if (!userMessage) return;
 
-        try {
-          const json = JSON.parse(dataStr);
-          const delta = json?.choices?.[0]?.delta?.content || "";
-          if (!delta) continue;
+    appendUser(userMessage);
+    input.value = "";
 
-          fullText += delta;
+    const botEl = appendBotContainer();
+    let fullText = "";
 
-          // ✅ render markdown as it streams
-          botDiv.innerHTML = renderMarkdown(fullText);
-          chatBox.scrollTop = chatBox.scrollHeight;
-        } catch {
-          // ignore malformed/partial JSON chunks
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMessage })
+      });
+
+      if (!response.ok || !response.body) {
+        renderMarkdownInto(botEl, `**Server error:** ${response.status}`);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // parse SSE lines
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+
+          // error event
+          if (trimmed.startsWith("event: error")) continue;
+
+          // data line
+          if (!trimmed.startsWith("data:")) continue;
+
+          const data = trimmed.slice(5).trim();
+
+          if (data === "[DONE]") {
+            renderMarkdownInto(botEl, fullText);
+            return;
+          }
+
+          // If Groq sends JSON chunks like OpenAI:
+          // data: {"choices":[{"delta":{"content":"hi"}}]}
+          try {
+            const json = JSON.parse(data);
+
+            // handle explicit streamed errors
+            if (json?.error) {
+              renderMarkdownInto(botEl, `**Error:** ${json.error}`);
+              return;
+            }
+
+            const delta = json?.choices?.[0]?.delta?.content || "";
+            if (delta) {
+              fullText += delta;
+              // render progressively (safe + looks good)
+              renderMarkdownInto(botEl, fullText);
+              scrollToBottom();
+            }
+          } catch {
+            // sometimes we get comments/pings or non-json lines; ignore
+          }
         }
       }
+
+      // If stream ended unexpectedly:
+      if (!fullText) {
+        renderMarkdownInto(botEl, "**No reply returned.** (Stream ended)");
+      }
+    } catch (err) {
+      renderMarkdownInto(botEl, `**Client error:** ${err.message}`);
+      console.error(err);
     }
   }
 
-  botDiv.innerHTML = renderMarkdown(fullText || "No reply returned.");
-}
-
-function onSend() {
-  const msg = input.value.trim();
-  if (!msg) return;
-  input.value = "";
-  streamChat(msg).catch((e) => {
-    console.error(e);
-    appendMessage("⚠️ Something went wrong.", "bot");
+  sendBtn.addEventListener("click", sendMessage);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
   });
-}
-
-sendBtn.addEventListener("click", onSend);
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") onSend();
 });
